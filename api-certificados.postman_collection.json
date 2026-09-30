@@ -1,0 +1,228 @@
+{
+  "info": {
+    "name": "API de Certificados",
+    "_postman_id": "api-certificados-local",
+    "description": "Collection para testar a API de certificados localmente. Configura a assinatura HMAC automaticamente via pre-request script.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",    "value": "http://localhost:3000" },
+    { "key": "clientId",   "value": "client_local_dev" },
+    { "key": "secret",     "value": "0123456789abcdef0123456789abcdef" },
+    { "key": "certificateId",   "value": "" },
+    { "key": "verificationCode", "value": "" },
+    { "key": "identityKey",     "value": "" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// ─── Script HMAC aplicado a todas as requests da collection ───",
+          "//",
+          "// Calcula X-Timestamp, X-Nonce, X-Signature e Idempotency-Key",
+          "// automaticamente antes de cada envio.",
+          "",
+          "const clientId   = pm.collectionVariables.get('clientId');",
+          "const secretStr  = pm.collectionVariables.get('secret');",
+          "",
+          "// Converte secret de string UTF-8 para WordArray do CryptoJS",
+          "const secretBytes = CryptoJS.enc.Utf8.parse(secretStr);",
+          "",
+          "// Timestamp Unix atual (segundos)",
+          "const timestamp = String(Math.floor(Date.now() / 1000));",
+          "",
+          "// Nonce: 16 bytes aleatórios em base64url (22 chars)",
+          "function randomBase64url(byteCount) {",
+          "    const words = [];",
+          "    for (let i = 0; i < byteCount / 4; i++) {",
+          "        words.push(Math.floor(Math.random() * 0x100000000));",
+          "    }",
+          "    const wa = CryptoJS.lib.WordArray.create(words, byteCount);",
+          "    return CryptoJS.enc.Base64.stringify(wa)",
+          "        .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');",
+          "}",
+          "const nonce = randomBase64url(16);",
+          "",
+          "// Idempotency-Key: UUID v4 gerado apenas para POST de mutação",
+          "function uuidv4() {",
+          "    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {",
+          "        const r = Math.random() * 16 | 0;",
+          "        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);",
+          "    });",
+          "}",
+          "const method = pm.request.method.toUpperCase();",
+          "const isMutation = (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE');",
+          "const idempotencyKey = isMutation ? uuidv4() : '';",
+          "",
+          "// Path sem query string",
+          "const url    = pm.request.url.toString();",
+          "const parsed = new URL(url);",
+          "const path   = parsed.pathname;",
+          "",
+          "// Body bruto (string vazia para GET)",
+          "const rawBody = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';",
+          "",
+          "// SHA-256 do body",
+          "const bodyHash = CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(rawBody)).toString(CryptoJS.enc.Hex);",
+          "",
+          "// String canônica",
+          "const canonical = [",
+          "    'cert-api-hmac-v1',",
+          "    clientId,",
+          "    method,",
+          "    path,",
+          "    timestamp,",
+          "    nonce,",
+          "    idempotencyKey,",
+          "    bodyHash",
+          "].join('\\n');",
+          "",
+          "// Assinatura HMAC-SHA256",
+          "const signature = CryptoJS.HmacSHA256(",
+          "    CryptoJS.enc.Utf8.parse(canonical),",
+          "    secretBytes",
+          ").toString(CryptoJS.enc.Hex);",
+          "",
+          "// Injeta headers",
+          "pm.request.headers.upsert({ key: 'X-Client-Id',  value: clientId });",
+          "pm.request.headers.upsert({ key: 'X-Timestamp',  value: timestamp });",
+          "pm.request.headers.upsert({ key: 'X-Nonce',      value: nonce });",
+          "pm.request.headers.upsert({ key: 'X-Signature',  value: signature });",
+          "if (idempotencyKey) {",
+          "    pm.request.headers.upsert({ key: 'Idempotency-Key', value: idempotencyKey });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /v1/health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/health",
+            "description": "Verifica se a API está no ar."
+          }
+        },
+        {
+          "name": "GET /v1/health/ready",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/health/ready",
+            "description": "Verifica se o banco de dados está acessível."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Certificados (privado)",
+      "item": [
+        {
+          "name": "POST /v1/certificates — Emitir certificado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201 || pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('certificateId',    body.certificateId);",
+                  "    pm.collectionVariables.set('verificationCode', body.verificationCode);",
+                  "    pm.collectionVariables.set('identityKey',      body.identityKey);",
+                  "    console.log('certificateId salvo:', body.certificateId);",
+                  "    console.log('verificationCode salvo:', body.verificationCode);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/v1/certificates",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalStudentId\": \"aluno-postman-001\",\n  \"courseId\": \"curso-postman-001\",\n  \"deliveryMode\": \"online\",\n  \"studentName\": \"Aluno de Teste\",\n  \"courseTitle\": \"Curso de Demonstração\",\n  \"workloadHours\": 40,\n  \"completionDate\": \"2026-09-29\",\n  \"certificateType\": \"standard\",\n  \"responsibleName\": \"Prof. Responsável\",\n  \"responsibleRole\": \"Coordenador\"\n}"
+            },
+            "description": "Emite um novo certificado. Salva certificateId, verificationCode e identityKey nas variáveis da collection automaticamente."
+          }
+        },
+        {
+          "name": "GET /v1/certificates/:id — Consultar por ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/certificates/{{certificateId}}",
+            "description": "Consulta os metadados completos de um certificado pelo ID. Use após emitir."
+          }
+        },
+        {
+          "name": "GET /v1/certificates/by-reference/:key — Consultar por identityKey",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/certificates/by-reference/{{identityKey}}",
+            "description": "Consulta o certificado vigente pela chave de identidade canônica (SHA-256 do aluno+curso+modalidade)."
+          }
+        },
+        {
+          "name": "GET /v1/certificates/:id/pdf — URL de download",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/certificates/{{certificateId}}/pdf",
+            "description": "Gera uma URL pré-assinada de curta duração (300s) para baixar o PDF do certificado."
+          }
+        },
+        {
+          "name": "POST /v1/certificates/:id/reissue — Reemitir",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/v1/certificates/{{certificateId}}/reissue",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actorId\": \"admin-postman\",\n  \"reason\": \"Correção de nome do aluno\",\n  \"studentName\": \"Aluno Corrigido Postman\",\n  \"courseTitle\": \"Curso de Demonstração\",\n  \"workloadHours\": 40,\n  \"completionDate\": \"2026-09-29\"\n}"
+            },
+            "description": "Reemite corretivamente um certificado vigente. O anterior fica com status SUPERSEDED."
+          }
+        },
+        {
+          "name": "POST /v1/certificates/:id/revoke — Revogar",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/v1/certificates/{{certificateId}}/revoke",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actorId\": \"admin-postman\",\n  \"reason\": \"Certificado emitido por engano\"\n}"
+            },
+            "description": "Revoga um certificado vigente. Idempotente: revogar um já revogado retorna 200 com o estado atual."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verificação Pública",
+      "item": [
+        {
+          "name": "GET /v1/public/certificates/:code — Verificar código",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/v1/public/certificates/{{verificationCode}}",
+            "description": "Verificação pública pelo código de verificação. Não requer autenticação. Retorna status: valid | revoked | replaced."
+          }
+        }
+      ]
+    }
+  ]
+}
