@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cert_api}
+      POSTGRES_USER: ${POSTGRES_USER:-cert_api}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-postgres-password}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  s3mock:
+    image: adobe/s3mock:latest
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_ROOT: /s3mockroot
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: ${S3_BUCKET:-certificate-pdfs}
+      COM_ADOBE_TESTING_S3MOCK_STORE_RETAIN_FILES_ON_EXIT: "true"
+    ports:
+      - "${S3MOCK_API_PORT:-9000}:9090"
+    volumes:
+      - s3mock_data:/s3mockroot
+
+volumes:
+  postgres_data:
+  s3mock_data:
