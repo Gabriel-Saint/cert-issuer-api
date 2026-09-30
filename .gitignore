@@ -1,0 +1,9 @@
+# Local configuration and generated files
+.env
+apps/api/.env
+apps/api/node_modules/
+apps/api/dist/
+apps/api/coverage/
+apps/api/*.log
+generated/
+node_modules
