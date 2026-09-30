@@ -1,0 +1,1 @@
+export const DOWNLOAD_URL_TTL_SECONDS = 300;
